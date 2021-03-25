@@ -99,6 +99,18 @@ if (![Environment]::Is64BitProcess)
     return
 }
 
+function Log
+{
+    param(
+        [Parameter(Mandatory=$true)][string]$content
+    )
+
+    $LogFile = "$env:Temp\typelibfix.log"
+    $LogDate = get-date -format "MM/dd/yyyy HH:mm:ss"
+    $LogLine = "$LogDate $content"
+    Add-Content -Path $LogFile -Value $LogLine -ErrorAction SilentlyContinue
+    Write-Host $content
+}
 
 # Cleans up stale typelib registries
 function ProcessTypelibHive
@@ -113,7 +125,7 @@ function ProcessTypelibHive
         # Check keys for confirmed TypeLibs
         if (Test-Path -Path $sKey)
         {
-           
+            Log("Found registration for typelib $tl")
             Write-Verbose "Found registration for typelib $tl"
 
             # Get Versioned subkey
@@ -125,6 +137,7 @@ function ProcessTypelibHive
 
                 if (Test-Path -Path $sWin32Key)
                 {
+                    Log("Found win32 registration for typelibe $tl version $version")
                     Write-Verbose "Found win32 registration for typelibe $tl version $version"
 
                     $libraryPath = Get-ItemPropertyValue -Path $sWin32Key -Name "(default)"
@@ -136,24 +149,30 @@ function ProcessTypelibHive
                         $resourceId = [int]$Matches[2]
                     }
                 
+                    Log("Found library path at $libraryPath" + $(if ([int]$resourceId -gt 0) { " (resourceId $resourceId)"}))
                     Write-Verbose ("Found library path at $libraryPath" + $(if ([int]$resourceId -gt 0) { " (resourceId $resourceId)"}))
                 
                     if (!(Test-Path -Path $libraryPath))
                     {
+                        Log("Found corrupt win32 typelib registration for $tl referencing non-existant file $libraryPath")
                         Write-Output "Found corrupt win32 typelib registration for $tl referencing non-existant file $libraryPath"
 
+                        Log("Removing key $swin32Key")
                         Write-Output "Removing key $swin32Key"
                         Remove-Item $sWin32Key
                     }
                 }
             }
         }
-     }   
+    }   
 }
+
+Log("*** Script Start ***")
 
 # Process Wow64 typelib node
 ProcessTypelibHive("HKLM:\Software\WOW6432Node\Classes\TypeLib\")
 
-
 # Process native typelib node
-ProcessTypelibHive("HKLM:\Software\Classes\TypeLib\")$
+ProcessTypelibHive("HKLM:\Software\Classes\TypeLib\")
+
+Log("*** Script End ***")
