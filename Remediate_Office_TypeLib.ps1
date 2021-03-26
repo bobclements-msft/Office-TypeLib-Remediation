@@ -1,4 +1,78 @@
-﻿$arrTypeLibs = @(
+﻿# Copyright (c) Microsoft Corporation. All rights reserved.
+#
+# Detection and remediation for orphaned TypeLib registry keys
+#
+
+# Log actions to %windir%\temp\typelibfix.log
+function Log
+{
+    param(
+        [Parameter(Mandatory=$true)][string]$logMessage
+    )
+
+    $LogFile = "$env:windir\Temp\typelibfix.log"
+    $LogDate = get-date -format "MM/dd/yyyy HH:mm:ss"
+    $LogLine = "$LogDate $logMessage"
+    Add-Content -Path $LogFile -Value $LogLine -ErrorAction SilentlyContinue
+}
+
+# Clean up stale TypeLib entries
+function ProcessTypelibHive
+{
+    param (
+        [string] $sHive
+    )
+    ForEach ($tl in $arrTypeLibs) 
+    {
+        $sKey = $sHive + $tl
+
+        # Check keys for confirmed TypeLibs
+        if (Test-Path -Path $sKey)
+        {
+            Log("Found registration for typelib $tl")
+            Write-Verbose "Found registration for typelib $tl"
+
+            # Get Versioned subkey
+            $versions = @(Get-ChildItem -Path $sKey -Name)
+
+            ForEach ($version in $versions)
+            {
+                $sWin32Key = $sKey + "\" + $version + "\0\Win32"
+
+                if (Test-Path -Path $sWin32Key)
+                {
+                    Log("Found win32 registration for typelibe $tl version $version")
+                    Write-Verbose "Found win32 registration for typelibe $tl version $version"
+
+                    $libraryPath = Get-ItemPropertyValue -Path $sWin32Key -Name "(default)"
+                    $resourceId = 0
+
+                    if ($libraryPath -match "(.*)\\(\d+)")
+                    {
+                        $libraryPath = $Matches[1]
+                        $resourceId = [int]$Matches[2]
+                    }
+                
+                    Log("Found library path at $libraryPath" + $(if ([int]$resourceId -gt 0) { " (resourceId $resourceId)"}))
+                    Write-Verbose ("Found library path at $libraryPath" + $(if ([int]$resourceId -gt 0) { " (resourceId $resourceId)"}))
+                
+                    if (!(Test-Path -Path $libraryPath))
+                    {
+                        Log("Found corrupt win32 typelib registration for $tl referencing non-existant file $libraryPath")
+                        Write-Output "Found corrupt win32 typelib registration for $tl referencing non-existant file $libraryPath"
+
+                        Log("Removing key $swin32Key")
+                        Write-Output "Removing key $swin32Key"
+                        Remove-Item $sWin32Key
+                    }
+                }
+            }
+        }
+    }   
+}
+
+# List of Office TypeLibs
+$arrTypeLibs = @(
     '{000204EF-0000-0000-C000-000000000046}',
     '{000204EF-0000-0000-C000-000000000046}',
     '{00020802-0000-0000-C000-000000000046}',
@@ -92,79 +166,12 @@
     '{F3685D71-1FC6-4CBD-B244-E60D8C89990B}'
 )
 
-# Ensure running as 64-bit process
+# Ensure process is running as 64-bit
 if (![Environment]::Is64BitProcess)
 {
-    Write-Error "This script is designed to run in 64-bit PowerShell."
+    Log("This script is designed to run in 64-bit PowerShell. Exiting.")
+    Write-Error "This script is designed to run in 64-bit PowerShell. Exiting."
     return
-}
-
-function Log
-{
-    param(
-        [Parameter(Mandatory=$true)][string]$content
-    )
-
-    $LogFile = "$env:Temp\typelibfix.log"
-    $LogDate = get-date -format "MM/dd/yyyy HH:mm:ss"
-    $LogLine = "$LogDate $content"
-    Add-Content -Path $LogFile -Value $LogLine -ErrorAction SilentlyContinue
-    Write-Host $content
-}
-
-# Cleans up stale typelib registries
-function ProcessTypelibHive
-{
-    param (
-        [string] $sHive
-    )
-    ForEach ($tl in $arrTypeLibs) 
-    {
-        $sKey = $sHive + $tl
-
-        # Check keys for confirmed TypeLibs
-        if (Test-Path -Path $sKey)
-        {
-            Log("Found registration for typelib $tl")
-            Write-Verbose "Found registration for typelib $tl"
-
-            # Get Versioned subkey
-            $versions = @(Get-ChildItem -Path $sKey -Name)
-
-            ForEach ($version in $versions)
-            {
-                $sWin32Key = $sKey + "\" + $version + "\0\Win32"
-
-                if (Test-Path -Path $sWin32Key)
-                {
-                    Log("Found win32 registration for typelibe $tl version $version")
-                    Write-Verbose "Found win32 registration for typelibe $tl version $version"
-
-                    $libraryPath = Get-ItemPropertyValue -Path $sWin32Key -Name "(default)"
-                    $resourceId = 0
-
-                    if ($libraryPath -match "(.*)\\(\d+)")
-                    {
-                        $libraryPath = $Matches[1]
-                        $resourceId = [int]$Matches[2]
-                    }
-                
-                    Log("Found library path at $libraryPath" + $(if ([int]$resourceId -gt 0) { " (resourceId $resourceId)"}))
-                    Write-Verbose ("Found library path at $libraryPath" + $(if ([int]$resourceId -gt 0) { " (resourceId $resourceId)"}))
-                
-                    if (!(Test-Path -Path $libraryPath))
-                    {
-                        Log("Found corrupt win32 typelib registration for $tl referencing non-existant file $libraryPath")
-                        Write-Output "Found corrupt win32 typelib registration for $tl referencing non-existant file $libraryPath"
-
-                        Log("Removing key $swin32Key")
-                        Write-Output "Removing key $swin32Key"
-                        Remove-Item $sWin32Key
-                    }
-                }
-            }
-        }
-    }   
 }
 
 Log("*** Script Start ***")
